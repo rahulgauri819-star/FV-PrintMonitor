@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>FV Print Monitor</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+:root {
+  --bg:       #080a0f;
+  --s1:       #0e1118;
+  --s2:       #141820;
+  --border:   #1e2433;
+  --border2:  #252d3d;
+  --blue:     #3d7fff;
+  --blue-dim: #1a3060;
+  --amber:    #f5a623;
+  --green:    #2ecc7a;
+  --red:      #e85050;
+  --purple:   #9b7fe8;
+  --text:     #dce3f0;
+  --sub:      #68738f;
+  --sub2:     #3d4660;
+  --mono:     'JetBrains Mono', monospace;
+  --sans:     'Sora', sans-serif;
+  --r:        10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ─────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 200;
+  background: rgba(8,10,15,0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  height: 56px;
+  display: flex; align-items: center;
+  padding: 0 24px; gap: 16px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 15px; font-weight: 700; letter-spacing: -0.4px;
+}
+.brand-icon {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.sep { color: var(--sub2); margin: 0 2px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.live-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(46,204,122,0.1);
+  border: 1px solid rgba(46,204,122,0.25);
+  border-radius: 20px; padding: 4px 10px;
+  font-size: 11px; font-weight: 600; color: var(--green);
+  letter-spacing: 0.6px;
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  animation: blink 1.8s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+#last-sync { font-size: 11px; color: var(--sub); }
+
+/* ── Layout ──────────────────────────────────────── */
+.layout { display: flex; min-height: calc(100vh - 56px); }
+
+/* ── Sidebar ─────────────────────────────────────── */
+.sidebar {
+  width: 220px; flex-shrink: 0;
+  background: var(--s1);
+  border-right: 1px solid var(--border);
+  padding: 20px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sidebar-label {
+  font-size: 10px; font-weight: 600;
+  color: var(--sub); text-transform: uppercase;
+  letter-spacing: 0.8px; padding: 4px 10px 8px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px;
+  cursor: pointer; color: var(--sub);
+  transition: all 0.12s; font-size: 13px; font-weight: 500;
+}
+.nav-item:hover { background: var(--s2); color: var(--text); }
+.nav-item.active { background: rgba(61,127,255,0.12); color: var(--blue); }
+.nav-item .ni-icon { font-size: 15px; width: 20px; text-align: center; }
+.pc-list { margin-top: 16px; display: flex; flex-direction: column; gap: 2px; }
+.pc-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: 8px;
+  cursor: pointer; color: var(--sub);
+  font-size: 12px; transition: all 0.12s;
+}
+.pc-item:hover { background: var(--s2); color: var(--text); }
+.pc-item.active { color: var(--amber); }
+.pc-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sub2); flex-shrink: 0;
+}
+.pc-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+/* ── Main Content ────────────────────────────────── */
+.content { flex: 1; overflow-x: hidden; padding: 24px; }
+
+/* ── Stats ───────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px; margin-bottom: 24px;
+}
+.stat {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r); padding: 16px 18px;
+  position: relative; overflow: hidden;
+}
+.stat::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent-color, var(--blue));
+  opacity: 0.6;
+}
+.stat-lbl {
+  font-size: 10px; font-weight: 600;
+  color: var(--sub); text-transform: uppercase;
+  letter-spacing: 0.7px; margin-bottom: 8px;
+}
+.stat-val {
+  font-family: var(--mono); font-size: 26px; font-weight: 600;
+  color: var(--accent-color, var(--blue));
+  line-height: 1;
+}
+.stat-sub { font-size: 11px; color: var(--sub); margin-top: 4px; }
+
+/* ── Controls ────────────────────────────────────── */
+.controls {
+  display: flex; gap: 10px; margin-bottom: 16px;
+  flex-wrap: wrap; align-items: center;
+}
+.ctrl {
+  background: var(--s1); border: 1px solid var(--border2);
+  color: var(--text); padding: 7px 13px; border-radius: 8px;
+  font-family: var(--sans); font-size: 12px; outline: none;
+  cursor: pointer; transition: border-color 0.12s;
+}
+.ctrl:focus, .ctrl:hover { border-color: var(--blue); }
+.btn {
+  padding: 7px 16px; border-radius: 8px; border: none;
+  font-family: var(--sans); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: opacity 0.15s;
+}
+.btn:hover { opacity: 0.8; }
+.btn-blue   { background: var(--blue); color: #fff; }
+.btn-ghost  { background: var(--s2); color: var(--sub); border: 1px solid var(--border2); }
+.btn-csv    { background: transparent; color: var(--green); border: 1px solid rgba(46,204,122,0.3); }
+.ml-auto    { margin-left: auto; }
+
+/* ── Table ───────────────────────────────────────── */
+.table-card {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: var(--r); overflow: hidden;
+}
+.table-head {
+  display: flex; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  gap: 10px;
+}
+.table-title { font-size: 14px; font-weight: 600; }
+#result-count { font-size: 11px; color: var(--sub); }
+.search-wrap { margin-left: auto; position: relative; }
+.search-wrap input {
+  background: var(--s2); border: 1px solid var(--border2);
+  color: var(--text); padding: 6px 12px 6px 30px;
+  border-radius: 8px; font-family: var(--sans); font-size: 12px; outline: none; width: 200px;
+}
+.search-wrap input:focus { border-color: var(--blue); }
+.search-wrap::before { content:'🔍'; position:absolute; left:9px; top:7px; font-size:11px; }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  background: rgba(0,0,0,0.3); padding: 10px 14px;
+  text-align: left; font-size: 10px; font-weight: 600;
+  color: var(--sub); text-transform: uppercase; letter-spacing: 0.7px;
+  white-space: nowrap;
+}
+tbody tr { border-top: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+tbody tr:hover { background: var(--s2); }
+tbody td { padding: 12px 14px; vertical-align: middle; }
+
+/* ── Cell Styles ─────────────────────────────────── */
+.doc-cell { display: flex; align-items: center; gap: 10px; }
+.thumb-wrap {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: 7px; overflow: hidden;
+  background: var(--s2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.thumb-wrap img { width: 100%; height: 100%; object-fit: cover; }
+.doc-name {
+  font-weight: 500; font-size: 13px;
+  max-width: 210px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.doc-ext {
+  font-size: 10px; color: var(--sub);
+  font-family: var(--mono); margin-top: 2px;
+}
+
+.badge {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 20px; font-size: 11px; font-weight: 600;
+}
+.b-color  { background: rgba(61,127,255,0.15); color: #7aabff; }
+.b-bw     { background: rgba(104,115,143,0.15); color: var(--sub); }
+.b-size   { background: rgba(46,204,122,0.12); color: var(--green); }
+.b-unk    { background: var(--s2); color: var(--sub2); }
+
+.pages-val { font-family: var(--mono); font-weight: 600; font-size: 15px; color: var(--amber); }
+
+.user-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(155,127,232,0.12);
+  border: 1px solid rgba(155,127,232,0.2);
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 500; color: var(--purple);
+}
+
+.machine-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(245,166,35,0.08);
+  border: 1px solid rgba(245,166,35,0.18);
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; color: var(--amber);
+}
+
+.time-col { font-family: var(--mono); font-size: 11px; color: var(--sub); }
+.time-col strong { display: block; color: var(--text); font-size: 12px; }
+
+/* ── Empty / Loading ─────────────────────────────── */
+.state-row td { padding: 50px; text-align: center; color: var(--sub); }
+.spin {
+  display: inline-block; width: 18px; height: 18px;
+  border: 2px solid var(--border); border-top-color: var(--blue);
+  border-radius: 50%; animation: spin 0.7s linear infinite;
+  vertical-align: middle; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Modal ───────────────────────────────────────── */
+#overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75); z-index: 999;
+  align-items: center; justify-content: center; padding: 20px;
+}
+#overlay.on { display: flex; }
+.modal {
+  background: var(--s1); border: 1px solid var(--border2);
+  border-radius: 14px; padding: 28px;
+  max-width: 640px; width: 100%;
+  max-height: 90vh; overflow-y: auto;
+}
+.modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 18px; }
+.modal-preview {
+  width: 100%; border-radius: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 20px; display: block;
+}
+.no-preview {
+  background: var(--s2); border: 1px dashed var(--border2);
+  border-radius: 10px; padding: 32px;
+  text-align: center; color: var(--sub);
+  font-size: 28px; margin-bottom: 20px;
+}
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.meta-box { background: var(--bg); border-radius: 8px; padding: 12px 14px; }
+.meta-k { font-size: 10px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+.meta-v { font-size: 13px; font-weight: 500; }
+.modal-close {
+  margin-top: 20px; width: 100%; padding: 10px;
+  background: var(--s2); border: 1px solid var(--border2);
+  color: var(--sub); border-radius: 8px; cursor: pointer;
+  font-family: var(--sans); font-size: 13px; transition: background 0.12s;
+}
+.modal-close:hover { background: var(--border2); color: var(--text); }
+
+/* ── PC Status Bar ───────────────────────────────── */
+.pc-bar {
+  display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.pc-card {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px;
+}
+.pc-card .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sub2); }
+.pc-card .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.pc-card strong { color: var(--text); }
+.pc-card span { color: var(--sub); }
+
+/* ── Responsive ──────────────────────────────────── */
+@media(max-width:900px){
+  .sidebar { display: none; }
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+}
+@media(max-width:600px){
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+  thead th:nth-child(6), tbody td:nth-child(6) { display:none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Topbar ─────────────────────────────────────── -->
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-icon">🖨</div>
+    FV Print Monitor
+  </div>
+  <span class="sep">·</span>
+  <span style="color:var(--sub);font-size:12px;">Office Control Panel</span>
+  <div class="topbar-right">
+    <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+    <span id="last-sync">Connecting…</span>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ── Sidebar ──────────────────────────────────── -->
+  <div class="sidebar">
+    <div class="sidebar-label">Views</div>
+    <div class="nav-item active" onclick="setView('today')">
+      <span class="ni-icon">📅</span> Today
+    </div>
+    <div class="nav-item" onclick="setView('all')">
+      <span class="ni-icon">📋</span> All Jobs
+    </div>
+    <div class="nav-item" onclick="setView('staff')">
+      <span class="ni-icon">👥</span> By Staff
+    </div>
+
+    <div class="sidebar-label" style="margin-top:20px;">Office PCs</div>
+    <div class="pc-list" id="pc-list">
+      <div class="pc-item" style="color:var(--sub2);font-size:11px;">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── Content ──────────────────────────────────── -->
+  <div class="content">
+
+    <!-- PC Status Bar -->
+    <div class="pc-bar" id="pc-bar"></div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat" style="--accent-color:var(--blue)">
+        <div class="stat-lbl">Today Jobs</div>
+        <div class="stat-val" id="s-jobs">—</div>
+        <div class="stat-sub">print jobs</div>
+      </div>
+      <div class="stat" style="--accent-color:var(--amber)">
+        <div class="stat-lbl">Pages Today</div>
+        <div class="stat-val" id="s-pages">—</div>
+        <div class="stat-sub">total pages</div>
+      </div>
+      <div class="stat" style="--accent-color:var(--green)">
+        <div class="stat-lbl">Color</div>
+        <div class="stat-val" id="s-color">—</div>
+        <div class="stat-sub">color prints</div>
+      </div>
+      <div class="stat" style="--accent-color:var(--sub)">
+        <div class="stat-lbl">B&amp;W</div>
+        <div class="stat-val" id="s-bw" style="color:var(--sub)">—</div>
+        <div class="stat-sub">mono prints</div>
+      </div>
+      <div class="stat" style="--accent-color:var(--purple)">
+        <div class="stat-lbl">Active Staff</div>
+        <div class="stat-val" id="s-staff" style="color:var(--purple)">—</div>
+        <div class="stat-sub">users today</div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <input type="date" class="ctrl" id="f-date">
+      <select class="ctrl" id="f-pc">
+        <option value="">All PCs</option>
+      </select>
+      <select class="ctrl" id="f-user">
+        <option value="">All Staff</option>
+      </select>
+      <select class="ctrl" id="f-color">
+        <option value="">Color &amp; B&amp;W</option>
+        <option value="Color">Color only</option>
+        <option value="B&W">B&amp;W only</option>
+      </select>
+      <button class="btn btn-blue" onclick="applyFilters()">Apply</button>
+      <button class="btn btn-ghost" onclick="resetFilters()">Reset</button>
+      <button class="btn btn-csv ml-auto" onclick="exportCSV()">⬇ CSV Export</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-card">
+      <div class="table-head">
+        <span class="table-title">Print Jobs</span>
+        <span id="result-count"></span>
+        <div class="search-wrap">
+          <input type="text" id="search" placeholder="Search file name…" oninput="applyFilters()">
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Document</th>
+            <th>Staff</th>
+            <th>Pages</th>
+            <th>Paper</th>
+            <th>Type</th>
+            <th>PC</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="state-row"><td colspan="7"><span class="spin"></span>Connecting to Firebase…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /layout -->
+
+<!-- ── Modal ──────────────────────────────────────── -->
+<div id="overlay">
+  <div class="modal">
+    <h3 id="m-title">Print Job</h3>
+    <img id="m-img" class="modal-preview" src="" alt="Preview" style="display:none">
+    <div id="m-nopreview" class="no-preview" style="display:none">📄<br><small style="font-size:13px;font-weight:400;margin-top:8px;display:block;">No preview available for this file type</small></div>
+    <div class="meta-grid" id="m-meta"></div>
+    <button class="modal-close" onclick="closeModal()">✕ Close</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  🔧 REPLACE WITH YOUR FIREBASE CONFIG
+//  (Create at console.firebase.google.com → New project → "FV-PrintMonitor")
+// ════════════════════════════════════════════════════════
+const FB = {
+  apiKey:            "PASTE_YOUR_API_KEY",
+  authDomain:        "fv-printmonitor.firebaseapp.com",
+  projectId:         "fv-printmonitor",
+  storageBucket:     "fv-printmonitor.appspot.com",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId:             "PASTE_APP_ID"
+};
+// ════════════════════════════════════════════════════════
+
+firebase.initializeApp(FB);
+const db = firebase.firestore();
+
+let ALL = [], FILTERED = [], view = 'today';
+
+// ── Live listener ────────────────────────────────────────
+db.collection("print_logs")
+  .orderBy("createdAt", "desc")
+  .limit(1000)
+  .onSnapshot(snap => {
+    ALL = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    buildPCList();
+    buildUserFilter();
+    buildPCFilter();
+    applyFilters();
+    updateStats();
+    document.getElementById("last-sync").textContent =
+      "Synced " + new Date().toLocaleTimeString('en-IN');
+  }, err => {
+    document.getElementById("last-sync").textContent = "⚠ Error";
+    console.error(err);
+  });
+
+// ── Views ────────────────────────────────────────────────
+function setView(v) {
+  view = v;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  if (v === 'today') {
+    document.getElementById('f-date').value = todayStr();
+  } else if (v === 'all') {
+    document.getElementById('f-date').value = '';
+  }
+  applyFilters();
+}
+
+// ── Stats ────────────────────────────────────────────────
+function updateStats() {
+  const t = ALL.filter(j => j.date === todayStr());
+  set('s-jobs',  t.length);
+  set('s-pages', t.reduce((s,j)=> s+(j.pages||0), 0));
+  set('s-color', t.filter(j=> j.colorMode==='Color').length);
+  set('s-bw',    t.filter(j=> j.colorMode==='B&W').length);
+  set('s-staff', new Set(t.map(j=>j.username).filter(Boolean)).size);
+
+  // PC bar
+  const pcs = [...new Set(ALL.map(j=>j.machine).filter(Boolean))];
+  const todayPCs = new Set(t.map(j=>j.machine));
+  document.getElementById('pc-bar').innerHTML = pcs.map(pc => `
+    <div class="pc-card">
+      <div class="dot ${todayPCs.has(pc)?'on':''}"></div>
+      <strong>${esc(pc)}</strong>
+      <span>— ${t.filter(j=>j.machine===pc).length} jobs today</span>
+    </div>`).join('');
+}
+
+// ── Sidebar PC list ──────────────────────────────────────
+function buildPCList() {
+  const pcs = [...new Set(ALL.map(j=>j.machine).filter(Boolean))];
+  const today = ALL.filter(j=>j.date===todayStr());
+  const todayPCSet = new Set(today.map(j=>j.machine));
+  document.getElementById('pc-list').innerHTML = pcs.map(pc => `
+    <div class="pc-item ${todayPCSet.has(pc)?'active':''}" onclick="filterByPC('${esc(pc)}')">
+      <div class="pc-dot ${todayPCSet.has(pc)?'online':''}"></div>
+      ${esc(pc)}
+    </div>`).join('');
+}
+
+function filterByPC(pc) {
+  document.getElementById('f-pc').value = pc;
+  applyFilters();
+}
+
+// ── Dropdown population ──────────────────────────────────
+function buildUserFilter() {
+  const sel = document.getElementById('f-user');
+  const cur = sel.value;
+  const users = [...new Set(ALL.map(j=>j.username).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All Staff</option>' +
+    users.map(u=>`<option value="${esc(u)}"${u===cur?' selected':''}>${esc(u)}</option>`).join('');
+}
+function buildPCFilter() {
+  const sel = document.getElementById('f-pc');
+  const cur = sel.value;
+  const pcs = [...new Set(ALL.map(j=>j.machine).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All PCs</option>' +
+    pcs.map(p=>`<option value="${esc(p)}"${p===cur?' selected':''}>${esc(p)}</option>`).join('');
+}
+
+// ── Filters ──────────────────────────────────────────────
+function applyFilters() {
+  const date  = document.getElementById('f-date').value;
+  const pc    = document.getElementById('f-pc').value;
+  const user  = document.getElementById('f-user').value;
+  const color = document.getElementById('f-color').value;
+  const q     = document.getElementById('search').value.toLowerCase();
+
+  FILTERED = ALL.filter(j => {
+    if (date  && j.date !== date) return false;
+    if (pc    && j.machine !== pc) return false;
+    if (user  && j.username !== user) return false;
+    if (color && j.colorMode !== color) return false;
+    if (q     && !(j.fileName||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  document.getElementById('result-count').textContent =
+    `${FILTERED.length} job${FILTERED.length!==1?'s':''}`;
+  renderTable();
+}
+
+function resetFilters() {
+  document.getElementById('f-date').value  = todayStr();
+  document.getElementById('f-pc').value    = '';
+  document.getElementById('f-user').value  = '';
+  document.getElementById('f-color').value = '';
+  document.getElementById('search').value  = '';
+  applyFilters();
+}
+
+// ── Table ────────────────────────────────────────────────
+function renderTable() {
+  const tb = document.getElementById('tbody');
+  if (!FILTERED.length) {
+    tb.innerHTML = `<tr class="state-row"><td colspan="7">🖨 No print jobs found.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = FILTERED.map(j => {
+    const ext  = (j.fileName||'').split('.').pop().toUpperCase();
+    const icon = extIcon(ext);
+    const thumb = j.previewUrl
+      ? `<div class="thumb-wrap"><img src="${j.previewUrl}" alt="" loading="lazy"></div>`
+      : `<div class="thumb-wrap">${icon}</div>`;
+    const [dt, tm] = (j.timestamp||'').split(' ');
+    const cBadge = j.colorMode==='Color'
+      ? `<span class="badge b-color">Color</span>`
+      : j.colorMode==='B&W'
+        ? `<span class="badge b-bw">B&W</span>`
+        : `<span class="badge b-unk">—</span>`;
+    const sBadge = j.paperSize
+      ? `<span class="badge b-size">${esc(j.paperSize)}</span>`
+      : '—';
+    const jStr = JSON.stringify(j).replace(/"/g,'&quot;');
+    return `<tr onclick="openModal(this)" data-job="${jStr}">
+      <td><div class="doc-cell">
+        ${thumb}
+        <div>
+          <div class="doc-name" title="${esc(j.fileName||'')}">${esc(j.fileName||'Unknown')}</div>
+          <div class="doc-ext">${ext||'—'}</div>
+        </div>
+      </div></td>
+      <td><span class="user-tag">👤 ${esc(j.username||'—')}</span></td>
+      <td><span class="pages-val">${j.pages??'—'}</span></td>
+      <td>${sBadge}</td>
+      <td>${cBadge}</td>
+      <td><span class="machine-tag">🖥 ${esc(j.machine||'—')}</span></td>
+      <td class="time-col"><strong>${tm||'—'}</strong>${dt||''}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Modal ────────────────────────────────────────────────
+function openModal(row) {
+  const j = JSON.parse(row.dataset.job.replace(/&quot;/g,'"'));
+  document.getElementById('m-title').textContent = j.fileName || 'Print Job';
+  const img = document.getElementById('m-img');
+  const noP = document.getElementById('m-nopreview');
+  if (j.previewUrl) {
+    img.src = j.previewUrl; img.style.display='block'; noP.style.display='none';
+  } else {
+    img.style.display='none'; noP.style.display='block';
+  }
+  const [dt,tm] = (j.timestamp||'').split(' ');
+  document.getElementById('m-meta').innerHTML = [
+    ['File Name', j.fileName||'—'],
+    ['Staff',     j.username||'—'],
+    ['Office PC', j.machine||'—'],
+    ['Printer',   j.printer||'—'],
+    ['Pages',     j.pages??'—'],
+    ['Paper Size',j.paperSize||'—'],
+    ['Color Mode',j.colorMode||'—'],
+    ['Date',      dt||'—'],
+    ['Time',      tm||'—'],
+  ].map(([k,v])=>`<div class="meta-box">
+    <div class="meta-k">${k}</div>
+    <div class="meta-v">${esc(String(v))}</div>
+  </div>`).join('');
+  document.getElementById('overlay').classList.add('on');
+}
+function closeModal() { document.getElementById('overlay').classList.remove('on'); }
+document.getElementById('overlay').addEventListener('click', e => {
+  if (e.target.id==='overlay') closeModal();
+});
+
+// ── CSV Export ───────────────────────────────────────────
+function exportCSV() {
+  const h = ['File','Staff','PC','Printer','Pages','Paper Size','Color Mode','Date','Time'];
+  const rows = FILTERED.map(j => {
+    const [dt,tm] = (j.timestamp||'').split(' ');
+    return [j.fileName,j.username,j.machine,j.printer,j.pages,j.paperSize,j.colorMode,dt,tm]
+      .map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',');
+  });
+  const blob = new Blob([[h.join(','),...rows].join('\n')], {type:'text/csv'});
+  const a = Object.assign(document.createElement('a'),{
+    href: URL.createObjectURL(blob),
+    download: `FV-PrintLog-${todayStr()}.csv`
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ── Helpers ──────────────────────────────────────────────
+const todayStr = () => new Date().toISOString().slice(0,10);
+const set = (id, v) => document.getElementById(id).textContent = v;
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function extIcon(ext) {
+  return {PDF:'📄',DOC:'📝',DOCX:'📝',XLS:'📊',XLSX:'📊',
+          JPG:'🖼',JPEG:'🖼',PNG:'🖼',TIF:'🖼',TIFF:'🖼',
+          PPT:'📑',PPTX:'📑',TXT:'📃',PSD:'🎨',AI:'🎨'}[ext] || '🖨';
+}
+
+// Init — default to today
+document.getElementById('f-date').value = todayStr();
+</script>
+</body>
+</html>
